@@ -1,8 +1,12 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS  # Import CORS
 from rag_tool import process_file_and_get_query_engine
 import os
 
 app = Flask(__name__)
+
+# Enable CORS for requests from the frontend (http://localhost:5173)
+CORS(app, resources={r"/query": {"origins": "http://localhost:5173"}})
 
 # Initialize query engine with CSV file on startup
 query_engine = None
