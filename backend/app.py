@@ -1,13 +1,15 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 from rag_tool import process_file_and_get_query_engine
 import os
 import logging
+from uuid import uuid4  # For session IDs
 
 app = Flask(__name__)
+app.secret_key = os.urandom(24)  # Required for session management
 
 # Enable CORS for frontend
-CORS(app, resources={r"/query": {"origins": "http://localhost:5173"}})
+CORS(app, resources={r"/query": {"origins": "http://localhost:5173"}}, supports_credentials=True)
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -16,7 +18,11 @@ logger = logging.getLogger(__name__)
 # Initialize query engine
 query_engine = None
 
+# Store chat history per session
+chat_history = {}
+
 def load_csv_and_build_engine():
+    """Load CSV and build RAG query engine."""
     global query_engine
     csv_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'assets', 'Sugar_Spend_Data.csv'))
     
@@ -37,12 +43,12 @@ def load_csv_and_build_engine():
     except Exception as e:
         logger.error(f"Error processing CSV or building RAG engine: {str(e)}", exc_info=True)
 
-# Load CSV and build engine on startup
+# Load CSV on startup
 load_csv_and_build_engine()
 
 @app.route('/query', methods=['POST'])
 def query_rag():
-    global query_engine
+    global query_engine, chat_history
     if query_engine is None:
         logger.error("Query engine not initialized")
         return jsonify({"error": "Failed to initialize RAG engine. Check server logs for details."}), 500
@@ -54,11 +60,31 @@ def query_rag():
     
     user_query = data['query']
     
+    # Get or create session ID
+    session_id = session.get('session_id')
+    if not session_id:
+        session_id = str(uuid4())
+        session['session_id'] = session_id
+        chat_history[session_id] = []
+    
+    # Prepare context from recent history (last 3 messages)
+    history_context = "\n".join(
+        [f"{'User' if msg['sender'] == 'human' else 'AI'}: {msg['text']}" 
+         for msg in chat_history[session_id][-3:]]
+    )
+    full_query = f"Context from previous conversation:\n{history_context}\n\nCurrent query: {user_query}" if history_context else user_query
+    
     try:
-        logger.debug(f"Processing query: {user_query}")
-        response = query_engine.query(user_query)
+        logger.debug(f"Processing query: {user_query} with session ID: {session_id}")
+        response = query_engine.query(full_query)
+        response_text = str(response)
+        
+        # Update chat history
+        chat_history[session_id].append({"sender": "human", "text": user_query})
+        chat_history[session_id].append({"sender": "ai", "text": response_text})
+        
         logger.info("Query processed successfully")
-        return jsonify({"response": str(response)}), 200
+        return jsonify({"response": response_text, "session_id": session_id})
     except Exception as e:
         logger.error(f"Error processing query: {str(e)}", exc_info=True)
         return jsonify({"error": str(e)}), 500
