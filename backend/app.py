@@ -1,93 +1,120 @@
-from flask import Flask, request, jsonify, session
+from flask import Flask, request, jsonify
 from flask_cors import CORS
-from rag_tool import process_file_and_get_query_engine
+from rag_tool import process_file_and_get_query_engine, query_with_history
 import os
 import logging
-from uuid import uuid4  # For session IDs
+from uuid import uuid4
+import sqlite3
+import datetime
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)  # Required for session management
+# MODIFICATION: secret_key is no longer needed for stateless session handling
+DATABASE = 'chat_history.db'
 
-# Enable CORS for frontend
-CORS(app, resources={r"/query": {"origins": "http://localhost:5173"}}, supports_credentials=True)
+# MODIFICATION: credentials are no longer needed
+CORS(app, resources={r"/*": {"origins": "http://localhost:5173"}})
 
-# Configure logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize query engine
+# --- Database Setup ---
+def get_db():
+    db = sqlite3.connect(DATABASE, check_same_thread=False) # check_same_thread added for safety
+    db.row_factory = sqlite3.Row
+    return db
+
+def init_db():
+    with app.app_context():
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS chat_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                sender TEXT NOT NULL,
+                text TEXT NOT NULL,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            '''
+        )
+        db.commit()
+        logger.info("Database initialized.")
+        db.close()
+
+# --- RAG Engine Setup ---
 query_engine = None
 
-# Store chat history per session
-chat_history = {}
-
 def load_csv_and_build_engine():
-    """Load CSV and build RAG query engine."""
     global query_engine
-    csv_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'assets', 'Sugar_Spend_Data.csv'))
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    csv_path = os.path.join(base_dir, '..', 'assets', 'Sugar_Spend_Data.csv')
     
-    logger.debug(f"Attempting to load CSV from: {csv_path}")
-    
+    logger.info(f"Attempting to load CSV from: {csv_path}")
     if not os.path.exists(csv_path):
-        logger.error(f"CSV file not found at {csv_path}")
+        logger.error(f"FATAL: CSV file not found at {csv_path}")
         return
     
     try:
-        with open(csv_path, 'rb') as file:
-            file_content = file.read()
-        file_name = 'Sugar_Spend_Data.csv'
-        
-        logger.debug("CSV file read successfully")
-        query_engine = process_file_and_get_query_engine(file_content, file_name)
-        logger.info("RAG index built successfully")
+        with open(csv_path, 'rb') as f:
+            file_content = f.read()
+        query_engine = process_file_and_get_query_engine(file_content, 'Sugar_Spend_Data.csv')
+        logger.info("RAG index built successfully from default CSV.")
     except Exception as e:
         logger.error(f"Error processing CSV or building RAG engine: {str(e)}", exc_info=True)
 
-# Load CSV on startup
+# Initialize DB and load CSV on startup
+init_db()
 load_csv_and_build_engine()
 
 @app.route('/query', methods=['POST'])
-def query_rag():
-    global query_engine, chat_history
+def query_rag_endpoint():
+    global query_engine
     if query_engine is None:
         logger.error("Query engine not initialized")
-        return jsonify({"error": "Failed to initialize RAG engine. Check server logs for details."}), 500
+        return jsonify({"error": "Failed to initialize RAG engine. Check server logs."}), 500
     
     data = request.json
     if 'query' not in data:
-        logger.warning("No query provided in request")
         return jsonify({"error": "No query provided"}), 400
     
     user_query = data['query']
+    # MODIFICATION: Get session_id from the request body, not Flask's session
+    session_id = data.get('session_id') or str(uuid4())
     
-    # Get or create session ID
-    session_id = session.get('session_id')
-    if not session_id:
-        session_id = str(uuid4())
-        session['session_id'] = session_id
-        chat_history[session_id] = []
-    
-    # Prepare context from recent history (last 3 messages)
-    history_context = "\n".join(
-        [f"{'User' if msg['sender'] == 'human' else 'AI'}: {msg['text']}" 
-         for msg in chat_history[session_id][-3:]]
-    )
-    full_query = f"Context from previous conversation:\n{history_context}\n\nCurrent query: {user_query}" if history_context else user_query
-    
+    db = get_db()
+    cursor = db.cursor()
     try:
-        logger.debug(f"Processing query: {user_query} with session ID: {session_id}")
-        response = query_engine.query(full_query)
-        response_text = str(response)
+        cursor.execute(
+            "SELECT sender, text FROM chat_history WHERE session_id = ? ORDER BY timestamp DESC LIMIT 3",
+            (session_id,)
+        )
+        history_rows = cursor.fetchall()
+        history_rows.reverse()
         
-        # Update chat history
-        chat_history[session_id].append({"sender": "human", "text": user_query})
-        chat_history[session_id].append({"sender": "ai", "text": response_text})
+        chat_history_list = [dict(row) for row in history_rows]
+
+        response_text = query_with_history(query_engine, user_query, chat_history_list)
         
-        logger.info("Query processed successfully")
+        cursor.execute(
+            "INSERT INTO chat_history (session_id, sender, text) VALUES (?, ?, ?)",
+            (session_id, 'human', user_query)
+        )
+        cursor.execute(
+            "INSERT INTO chat_history (session_id, sender, text) VALUES (?, ?, ?)",
+            (session_id, 'ai', response_text)
+        )
+        db.commit()
+        
+        logger.info(f"Successfully processed query for session {session_id}")
+        # MODIFICATION: Always return the session_id in the response
         return jsonify({"response": response_text, "session_id": session_id})
     except Exception as e:
         logger.error(f"Error processing query: {str(e)}", exc_info=True)
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "An error occurred while processing your request."}), 500
+    finally:
+        db.close()
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
+

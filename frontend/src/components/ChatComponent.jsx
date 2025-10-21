@@ -1,15 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
-// Removed imports for non-existent UI components
 import { SendHorizonal } from 'lucide-react';
 
 const API_URL = 'http://localhost:5000'; // Adjust if deployed
 
 // --- Self-Contained UI Components ---
-// Replaced external UI library components with simple, styled divs and elements
-// This makes the component self-contained and removes the dependency errors.
-
 const Card = ({ className, children }) => <div className={`bg-white rounded-lg border bg-card text-card-foreground shadow-sm ${className}`}>{children}</div>;
 const CardHeader = ({ className, children }) => <div className={`flex flex-col space-y-1.5 p-6 ${className}`}>{children}</div>;
 const CardTitle = ({ className, children }) => <h3 className={`text-2xl font-semibold leading-none tracking-tight ${className}`}>{children}</h3>;
@@ -21,7 +17,6 @@ const AvatarImage = ({ src, alt, className }) => <img src={src} alt={alt} classN
 const AvatarFallback = ({ children, className }) => <span className={`flex h-full w-full items-center justify-center rounded-full bg-muted ${className}`}>{children}</span>;
 
 function ChatComponent() {
-  // MODIFICATION: Added an initial welcome message to the state.
   const [messages, setMessages] = useState([
     {
       sender: 'ai',
@@ -30,6 +25,8 @@ function ChatComponent() {
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  // MODIFICATION: Add state to hold the session ID
+  const [sessionID, setSessionID] = useState(null);
   const scrollContainerRef = useRef(null);
 
   useEffect(() => {
@@ -48,7 +45,19 @@ function ChatComponent() {
     setIsLoading(true);
 
     try {
-      const response = await axios.post(`${API_URL}/query`, { query: messageText });
+      // MODIFICATION: Include session_id in the request payload
+      const payload = { 
+        query: messageText,
+        session_id: sessionID // Will be null on the first request
+      };
+
+      const response = await axios.post(`${API_URL}/query`, payload);
+      
+      // MODIFICATION: Update the session ID from the server's response
+      if (response.data.session_id) {
+        setSessionID(response.data.session_id);
+      }
+      
       setMessages(prev => [...prev, { sender: 'ai', text: response.data.response }]);
     } catch (error) {
       console.error("Failed to send message:", error);
@@ -109,7 +118,7 @@ function ChatComponent() {
                     <AvatarImage src="https://api.dicebear.com/8.x/bottts/svg?seed=AI" alt="AI Avatar" />
                     <AvatarFallback>AI</AvatarFallback>
                   </Avatar>
-                  <div className="rounded-xl px-4 py-2.5 bg-white border-slate-200 text-slate-800 shadow-md">
+                  <div className="rounded-xl px-4 py-2.5 bg-white border border-slate-200 text-slate-800 shadow-md">
                     <div className="flex items-center space-x-1">
                       <span className="dot animate-bounce"></span>
                       <span className="dot animate-bounce delay-150"></span>
