@@ -1,0 +1,32 @@
+=========================================
+Python / Flask Backend
+=========================================
+Virtual Environment
+Ignores the virtual environment folder, which contains installed packages.
+venv/
+.venv/
+env/
+.env/
+
+Python cache files
+Ignores compiled Python files and cache folders.
+pycache/
+*.pyc
+*.pyo
+*.pyd
+
+Environment variables
+CRITICAL: Ignores the file containing your secret API keys.
+.env
+
+Database files
+Ignores the local SQLite database file.
+*.db
+*.sqlite3
+interviews.db
+
+Build artifacts
+Ignores folders created when building or distributing a Python package.
+build/
+dist/
+*.egg-info/
