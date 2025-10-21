@@ -11,6 +11,7 @@ from llama_index.vector_stores.chroma import ChromaVectorStore
 import chromadb
 from dotenv import load_dotenv
 import pandas as pd
+import io  # Added for BytesIO
 
 def initialize_llm():
     """Initialize and return the Groq LLM."""
@@ -19,7 +20,7 @@ def initialize_llm():
     if not api_key:
         raise ValueError("GROQ_API_KEY not found in .env file")
     os.environ["GROQ_API_KEY"] = api_key
-    return Groq(model="llama3-70b-8192", temperature=0.1)
+    return Groq(model="openai/gpt-oss-20b", temperature=0.1)
 
 def load_document(file_content, file_name):
     """
@@ -37,7 +38,8 @@ def load_document(file_content, file_name):
         raise ValueError("Only CSV files are supported for this RAG tool.")
     
     try:
-        df = pd.read_csv(file_content)
+        # Convert bytes to a file-like object for pandas
+        df = pd.read_csv(io.BytesIO(file_content))
         markdown_table = df.to_markdown(index=False)
         return Document(text=markdown_table)
     except Exception as e:
