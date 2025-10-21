@@ -1,6 +1,6 @@
 # AI-Powered Chatbot MVP
 
-This project is an AI-powered chatbot developed as part of the AI Engineering Internship application for Kearney. It processes a CSV file (`Sugar_Spend_Data.csv`) containing commodity data and allows users to ask natural language questions about the data, leveraging a Retrieval-Augmented Generation (RAG) pipeline powered by LlamaIndex and xAI's Grok API. The frontend is built with React, Vite, Tailwind CSS, and shadcn/ui, while the backend uses Flask. The chatbot maintains conversation history to handle follow-up questions contextually.
+This project is an AI-powered chatbot developed as part of the AI Engineering Internship application for Kearney. It processes a CSV file (`Sugar_Spend_Data.csv`) containing commodity data and allows users to ask natural language questions about the data, leveraging a Retrieval-Augmented Generation (RAG) pipeline powered by LlamaIndex and GROQ API. The frontend is built with React, Vite, Tailwind CSS, and shadcn/ui, while the backend uses Flask. The chatbot maintains conversation history to handle follow-up questions contextually.
 
 ## Features
 - **Data Processing**: Loads and processes a CSV file (`Sugar_Spend_Data.csv`) from the `assets/` directory.
@@ -12,7 +12,7 @@ This project is an AI-powered chatbot developed as part of the AI Engineering In
 ## Prerequisites
 - **Node.js** (v18 or higher) for the frontend.
 - **Python** (3.8–3.11) for the backend.
-- **Grok API Key** from [xAI API](https://x.ai/api).
+- **GROQ API Key** .
 - **CSV File**: `Sugar_Spend_Data.csv` in `assets/` with the format:
   ```csv
   Commodity,Top Supplier,Quantity (KG),Spend (USD)

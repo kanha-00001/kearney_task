@@ -12,7 +12,7 @@ app = Flask(__name__)
 DATABASE = 'chat_history.db'
 
 # MODIFICATION: credentials are no longer needed
-CORS(app, resources={r"/*": {"origins": "http://localhost:5173"}})
+CORS(app)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

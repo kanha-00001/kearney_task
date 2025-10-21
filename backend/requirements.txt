@@ -1,0 +1,16 @@
+
+Flask
+Flask-Cors
+gunicorn
+llama-index
+llama-index-llms-groq
+llama-index-embeddings-huggingface
+llama-index-vector-stores-chroma
+pandas
+python-dotenv
+chromadb
+sentence-transformers
+transformers
+numpy
+
+typing-extensions

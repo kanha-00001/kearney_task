@@ -3,7 +3,7 @@ import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 import { SendHorizonal } from 'lucide-react';
 
-const API_URL = 'http://localhost:5000'; // Adjust if deployed
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
 // --- Self-Contained UI Components ---
 const Card = ({ className, children }) => <div className={`bg-white rounded-lg border bg-card text-card-foreground shadow-sm ${className}`}>{children}</div>;
