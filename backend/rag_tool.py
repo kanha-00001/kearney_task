@@ -11,7 +11,7 @@ from llama_index.vector_stores.chroma import ChromaVectorStore
 import chromadb
 from dotenv import load_dotenv
 import pandas as pd
-import io  # Added for BytesIO
+import io
 
 def initialize_llm():
     """Initialize and return the Groq LLM."""
@@ -23,17 +23,14 @@ def initialize_llm():
     return Groq(model="openai/gpt-oss-20b", temperature=0.1)
 
 def load_document(file_content, file_name):
-    """
-    Load a document from file content and return a Document object.
-    Modified to handle CSV specifically by converting to markdown table for better RAG.
-    """
+    """Load a document from file content and return a Document object."""
     if not file_name.lower().endswith('.csv'):
         raise ValueError("Only CSV files are supported for this RAG tool.")
     
     try:
         df = pd.read_csv(io.BytesIO(file_content))
         markdown_table = df.to_markdown(index=False)
-        return Document(text=markdown_table, metadata={"file_name": file_name})
+        return Document(text=markdown_table)
     except Exception as e:
         raise ValueError(f"Error processing CSV: {str(e)}")
 
@@ -49,16 +46,15 @@ def build_sentence_window_index(documents, collection_name, sentence_window_size
     Settings.llm = llm
     Settings.embed_model = embedding_model
     Settings.node_parser = node_parser
-    
-    # Using an in-memory client for simplicity, can be changed to PersistentClient
+
+    # MODIFICATION: Use an in-memory ChromaDB client for deployment
     chroma_client = chromadb.Client() 
+    
     chroma_collection = chroma_client.get_or_create_collection(name=collection_name)
     vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
-    
     index = VectorStoreIndex.from_documents(
         documents,
-        vector_store=vector_store,
-        show_progress=True
+        vector_store=vector_store
     )
     return index
 
@@ -66,7 +62,7 @@ def get_sentence_window_query_engine(index, similarity_top_k=6, rerank_top_n=2):
     """Create a query engine for the sentence window index."""
     postproc = MetadataReplacementPostProcessor(target_metadata_key="window")
     rerank = SentenceTransformerRerank(
-        top_n=rerank_top_n, 
+        top_n=rerank_top_n,
         model="BAAI/bge-reranker-base"
     )
     return index.as_query_engine(
@@ -82,38 +78,28 @@ def process_file_and_get_query_engine(file_content, file_name):
     index = build_sentence_window_index([document], collection_name)
     return get_sentence_window_query_engine(index)
 
-def query_with_history(query_engine, user_query, chat_history):
-    """
-    Queries the RAG engine, then combines the result with history for a final answer.
-    This "hybrid" approach separates data retrieval from conversational context.
-    """
+def query_with_history(query_engine, query, chat_history):
+    """Queries the engine using context from chat history."""
     if not query_engine:
-        return "Error: Query engine is not initialized."
+        return "Error: Query engine not initialized."
 
-    # 1. Query the vector store with the user's direct question to get relevant data
-    vector_response = query_engine.query(user_query)
+    # First, get the context from the vector database based on the user's query
+    vector_response = query_engine.query(query)
 
-    # 2. Format the conversation history
+    # Format the history
     history_context = "\n".join(
-        [f"User: {msg['text']}" if msg['sender'] == 'human' else f"AI: {msg['text']}" for msg in chat_history]
+        [f"{'User' if msg['sender'] == 'human' else 'AI'}: {msg['text']}" for msg in chat_history]
     )
 
-    # 3. Construct a final, detailed prompt for the LLM
+    # Construct the final prompt for the LLM
     full_prompt = (
-        f"You are a helpful AI assistant. Your task is to answer the user's question based on two sources of information:\n"
-        f"1. Retrieved Content: This is factual data retrieved from a database that is highly relevant to the user's question.\n"
-        f"2. Conversation History: This provides context about the ongoing dialogue.\n\n"
-        f"--- RETRIEVED CONTENT ---\n{vector_response}\n\n"
-        f"--- CONVERSATION HISTORY ---\n{history_context}\n\n"
-        f"--- INSTRUCTION ---\n"
-        f"Please synthesize an answer to the following question using the retrieved content and the conversation history. "
-        f"Prioritize the 'RETRIEVED CONTENT' for factual accuracy. Use the 'CONVERSATION HISTORY' to understand the context of the question.\n"
-        f"User's Question: {user_query}"
+        f"You are a helpful data assistant. Use the following retrieved context from the data file and the recent conversation history to answer the user's question.\n\n"
+        f"Retrieved Context:\n{vector_response}\n\n"
+        f"Recent Conversation:\n{history_context}\n\n"
+        f"Based on all of the above, answer this question: {query}"
     )
 
-    # 4. Call the LLM directly with the rich prompt
     llm = Settings.llm
-    final_answer = llm.complete(full_prompt)
-    
-    return str(final_answer)
+    answer = llm.complete(full_prompt)
+    return answer.text
 
