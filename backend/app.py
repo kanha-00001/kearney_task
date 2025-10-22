@@ -5,42 +5,46 @@ import os
 import logging
 from uuid import uuid4
 import sqlite3
-import datetime
 
 app = Flask(__name__)
-# MODIFICATION: secret_key is no longer needed for stateless session handling
-DATABASE = 'chat_history.db'
+DATABASE = '/opt/render/project/src/backend/chat_history.db'  # Render disk path
 
-# MODIFICATION: credentials are no longer needed
-CORS(app)
+# Enable CORS for frontend
+CORS(app, resources={r"/query": {"origins": ["http://localhost:5173", "https://*.onrender.com"]}})
 
-logging.basicConfig(level=logging.INFO)
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 # --- Database Setup ---
 def get_db():
-    db = sqlite3.connect(DATABASE, check_same_thread=False) # check_same_thread added for safety
+    db = sqlite3.connect(DATABASE, check_same_thread=False)
     db.row_factory = sqlite3.Row
     return db
 
 def init_db():
     with app.app_context():
+        logger.info("Initializing SQLite database")
         db = get_db()
         cursor = db.cursor()
-        cursor.execute(
-            '''
-            CREATE TABLE IF NOT EXISTS chat_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id TEXT NOT NULL,
-                sender TEXT NOT NULL,
-                text TEXT NOT NULL,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        try:
+            cursor.execute(
+                '''
+                CREATE TABLE IF NOT EXISTS chat_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    sender TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+                '''
             )
-            '''
-        )
-        db.commit()
-        logger.info("Database initialized.")
-        db.close()
+            db.commit()
+            logger.info("Database initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize database: {str(e)}", exc_info=True)
+        finally:
+            db.close()
 
 # --- RAG Engine Setup ---
 query_engine = None
@@ -59,11 +63,12 @@ def load_csv_and_build_engine():
         with open(csv_path, 'rb') as f:
             file_content = f.read()
         query_engine = process_file_and_get_query_engine(file_content, 'Sugar_Spend_Data.csv')
-        logger.info("RAG index built successfully from default CSV.")
+        logger.info("RAG index built successfully from default CSV")
     except Exception as e:
         logger.error(f"Error processing CSV or building RAG engine: {str(e)}", exc_info=True)
 
 # Initialize DB and load CSV on startup
+logger.info("Starting application initialization")
 init_db()
 load_csv_and_build_engine()
 
@@ -76,10 +81,10 @@ def query_rag_endpoint():
     
     data = request.json
     if 'query' not in data:
+        logger.warning("No query provided in request")
         return jsonify({"error": "No query provided"}), 400
     
     user_query = data['query']
-    # MODIFICATION: Get session_id from the request body, not Flask's session
     session_id = data.get('session_id') or str(uuid4())
     
     db = get_db()
@@ -107,7 +112,6 @@ def query_rag_endpoint():
         db.commit()
         
         logger.info(f"Successfully processed query for session {session_id}")
-        # MODIFICATION: Always return the session_id in the response
         return jsonify({"response": response_text, "session_id": session_id})
     except Exception as e:
         logger.error(f"Error processing query: {str(e)}", exc_info=True)
@@ -115,7 +119,12 @@ def query_rag_endpoint():
     finally:
         db.close()
 
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))  # <- dynamic for Render
-    app.run(host="0.0.0.0", port=port, debug=True)
+@app.route('/health', methods=['GET'])
+def health_check():
+    logger.info("Health check requested")
+    return jsonify({"status": "healthy"}), 200
 
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 5000))
+    logger.info(f"Starting Flask app on port {port}")
+    app.run(host="0.0.0.0", port=port, debug=True)
