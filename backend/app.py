@@ -7,7 +7,9 @@ from uuid import uuid4
 import sqlite3
 
 app = Flask(__name__)
-DATABASE = '/opt/render/project/src/backend/chat_history.db'  # Render disk path
+
+# Set dynamic database path: Render disk for deployment, local path for development
+DATABASE = os.environ.get('DATABASE_PATH', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'chat_history.db'))
 
 # Enable CORS for frontend
 CORS(app, resources={r"/query": {"origins": ["http://localhost:5173", "https://*.onrender.com"]}})
@@ -16,11 +18,19 @@ CORS(app, resources={r"/query": {"origins": ["http://localhost:5173", "https://*
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Suppress TensorFlow warnings
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+
 # --- Database Setup ---
 def get_db():
-    db = sqlite3.connect(DATABASE, check_same_thread=False)
-    db.row_factory = sqlite3.Row
-    return db
+    try:
+        db = sqlite3.connect(DATABASE, check_same_thread=False)
+        db.row_factory = sqlite3.Row
+        logger.info(f"Connected to database at: {DATABASE}")
+        return db
+    except Exception as e:
+        logger.error(f"Failed to connect to database at {DATABASE}: {str(e)}", exc_info=True)
+        raise
 
 def init_db():
     with app.app_context():
@@ -43,6 +53,7 @@ def init_db():
             logger.info("Database initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize database: {str(e)}", exc_info=True)
+            raise
         finally:
             db.close()
 
@@ -69,8 +80,12 @@ def load_csv_and_build_engine():
 
 # Initialize DB and load CSV on startup
 logger.info("Starting application initialization")
-init_db()
-load_csv_and_build_engine()
+try:
+    init_db()
+    load_csv_and_build_engine()
+except Exception as e:
+    logger.error(f"Startup failed: {str(e)}", exc_info=True)
+    raise
 
 @app.route('/query', methods=['POST'])
 def query_rag_endpoint():
