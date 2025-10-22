@@ -12,13 +12,15 @@ app = Flask(__name__)
 DATABASE = os.environ.get('DATABASE_PATH', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'chat_history.db'))
 
 # Enable CORS for frontend
-CORS(app, resources={r"/query": {"origins": ["http://localhost:5173", "https://*.onrender.com"]}})
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Suppress TensorFlow warnings
+# Su
+# 
+# press TensorFlow warnings
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
 # --- Database Setup ---
